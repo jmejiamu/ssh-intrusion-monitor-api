@@ -1,5 +1,7 @@
 import express from "express";
 import type { Request, Response } from "express";
+
+import { securityEventSchema } from "./schema/securityEvent.ts";
 const app = express();
 const PORT = 3000;
 
@@ -32,30 +34,18 @@ app.get("/api/events", (_req: Request, res: Response) => {
 });
 
 app.post("/api/events", (req: Request, res: Response) => {
-  const { type, severity, username, ip_address, attempt_count, timestamp } =
-    req.body;
+  const result = securityEventSchema.safeParse(req.body);
 
-  if (
-    !type ||
-    !severity ||
-    !username ||
-    !ip_address ||
-    attempt_count === undefined ||
-    !timestamp
-  ) {
+  if (!result.success) {
     return res.status(400).json({
-      error: "Missing required event fields",
+      error: "Invalid security event",
+      details: result.error.flatten(),
     });
   }
 
   const event: SecurityEvent = {
     id: events.length + 1,
-    type,
-    severity,
-    username,
-    ip_address,
-    attempt_count,
-    timestamp,
+    ...result.data,
     received_at: new Date().toISOString(),
   };
 
