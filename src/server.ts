@@ -1,19 +1,36 @@
 import dotenv from "dotenv";
-
 import express from "express";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
+import { createServer } from "http";
+import { Server } from "socket.io";
 
 import { securityEventSchema } from "./schema/securityEvent.ts";
 import { SecurityEvent } from "./models/SecurityEvent.ts";
+
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: "*",
+  },
+});
 
 const PORT = Number(process.env.PORT) || 3000;
 const MONGODB_URI = process.env.MONGODB_URI;
 
 app.use(express.json());
+
+io.on("connection", (socket) => {
+  console.log(`Socket connected: ${socket.id}`);
+
+  socket.on("disconnect", () => {
+    console.log(`Socket disconnected: ${socket.id}`);
+  });
+});
 
 app.get("/", (_req: Request, res: Response) => {
   return res.json({
@@ -80,8 +97,9 @@ app.post("/api/events", async (req: Request, res: Response) => {
 
     const event = await SecurityEvent.create(result.data);
 
-    console.log("Security event received:");
-    console.log(event);
+    console.log("Security event received:", event);
+
+    io.emit("security_event", event);
 
     return res.status(201).json({
       message: "Security event received",
@@ -107,7 +125,7 @@ async function startServer() {
 
     console.log("Connected to MongoDB");
 
-    app.listen(PORT, "0.0.0.0", () => {
+    httpServer.listen(PORT, "0.0.0.0", () => {
       console.log(`SSH Monitor API listening on port ${PORT}`);
     });
   } catch (error) {
