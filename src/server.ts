@@ -1,87 +1,119 @@
+import dotenv from "dotenv";
+
 import express from "express";
 import type { Request, Response } from "express";
+import mongoose from "mongoose";
 
 import { securityEventSchema } from "./schema/securityEvent.ts";
+import { SecurityEvent } from "./models/SecurityEvent.ts";
+dotenv.config();
+
 const app = express();
-const PORT = 3000;
+
+const PORT = Number(process.env.PORT) || 3000;
+const MONGODB_URI = process.env.MONGODB_URI;
 
 app.use(express.json());
 
-type SecurityEvent = {
-  id: number;
-  type: string;
-  severity: string;
-  username: string;
-  ip_address: string;
-  attempt_count: number;
-  timestamp: string;
-  received_at: string;
-};
-
-const events: SecurityEvent[] = [];
-
 app.get("/", (_req: Request, res: Response) => {
-  res.json({
+  return res.json({
     message: "SSH Monitor API is running",
   });
 });
 
-app.get("/api/events", (req: Request, res: Response) => {
-  const { severity, type, ip_address, limit } = req.query;
+app.get("/api/events", async (req: Request, res: Response) => {
+  try {
+    const { severity, type, ip_address, limit } = req.query;
 
-  let filteredEvents = events;
+    const filter: Record<string, string> = {};
 
-  if (severity) {
-    filteredEvents = filteredEvents.filter(
-      (event) => event.severity === severity,
-    );
-  }
+    if (typeof severity === "string") {
+      filter.severity = severity;
+    }
 
-  if (type) {
-    filteredEvents = filteredEvents.filter((event) => event.type === type);
-  }
+    if (typeof type === "string") {
+      filter.type = type;
+    }
 
-  if (ip_address) {
-    filteredEvents = filteredEvents.filter(
-      (event) => event.ip_address === ip_address,
-    );
-  }
+    if (typeof ip_address === "string") {
+      filter.ip_address = ip_address;
+    }
 
-  const parsedLimit = Number(limit);
+    let parsedLimit = 50;
 
-  if (!Number.isNaN(parsedLimit) && parsedLimit > 0) {
-    filteredEvents = filteredEvents.slice(-parsedLimit);
-  }
+    if (typeof limit === "string") {
+      const requestedLimit = Number(limit);
 
-  return res.json(filteredEvents);
-});
+      if (
+        Number.isInteger(requestedLimit) &&
+        requestedLimit > 0 &&
+        requestedLimit <= 100
+      ) {
+        parsedLimit = requestedLimit;
+      }
+    }
 
-app.post("/api/events", (req: Request, res: Response) => {
-  const result = securityEventSchema.safeParse(req.body);
+    const events = await SecurityEvent.find(filter)
+      .sort({ timestamp: -1 })
+      .limit(parsedLimit);
 
-  if (!result.success) {
-    return res.status(400).json({
-      error: "Invalid security event",
-      details: result.error.flatten(),
+    return res.json(events);
+  } catch (error) {
+    console.error("Failed to fetch security events:", error);
+
+    return res.status(500).json({
+      error: "Failed to fetch security events",
     });
   }
-
-  const event: SecurityEvent = {
-    id: events.length + 1,
-    ...result.data,
-    received_at: new Date().toISOString(),
-  };
-
-  events.push(event);
-
-  console.log("Security event received:", event);
-
-  return res.status(201).json({
-    message: "Security event received",
-    event,
-  });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`SSH Monitor API listening on port ${PORT}`);
+app.post("/api/events", async (req: Request, res: Response) => {
+  try {
+    const result = securityEventSchema.safeParse(req.body);
+
+    if (!result.success) {
+      return res.status(400).json({
+        error: "Invalid security event",
+        details: result.error.flatten(),
+      });
+    }
+
+    const event = await SecurityEvent.create(result.data);
+
+    console.log("Security event received:");
+    console.log(event);
+
+    return res.status(201).json({
+      message: "Security event received",
+      event,
+    });
+  } catch (error) {
+    console.error("Failed to save security event:", error);
+
+    return res.status(500).json({
+      error: "Failed to save security event",
+    });
+  }
 });
+
+async function startServer() {
+  if (!MONGODB_URI) {
+    console.error("MONGODB_URI is missing from .env");
+    process.exit(1);
+  }
+
+  try {
+    await mongoose.connect(MONGODB_URI);
+
+    console.log("Connected to MongoDB");
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`SSH Monitor API listening on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Failed to connect to MongoDB:", error);
+    process.exit(1);
+  }
+}
+
+startServer();
