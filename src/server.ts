@@ -26,11 +26,34 @@ app.get("/", (_req: Request, res: Response) => {
   });
 });
 
-app.get("/api/events", (_req: Request, res: Response) => {
-  res.json({
-    count: events.length,
-    events,
-  });
+app.get("/api/events", (req: Request, res: Response) => {
+  const { severity, type, ip_address, limit } = req.query;
+
+  let filteredEvents = events;
+
+  if (severity) {
+    filteredEvents = filteredEvents.filter(
+      (event) => event.severity === severity,
+    );
+  }
+
+  if (type) {
+    filteredEvents = filteredEvents.filter((event) => event.type === type);
+  }
+
+  if (ip_address) {
+    filteredEvents = filteredEvents.filter(
+      (event) => event.ip_address === ip_address,
+    );
+  }
+
+  const parsedLimit = Number(limit);
+
+  if (!Number.isNaN(parsedLimit) && parsedLimit > 0) {
+    filteredEvents = filteredEvents.slice(-parsedLimit);
+  }
+
+  return res.json(filteredEvents);
 });
 
 app.post("/api/events", (req: Request, res: Response) => {
