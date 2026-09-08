@@ -40,11 +40,11 @@ app.get("/", (_req: Request, res: Response) => {
 
 app.get("/api/events", async (req: Request, res: Response) => {
   try {
-    const { severity, type, ip_address, limit } = req.query;
+    const { severity, type, ip_address, limit, page } = req.query;
 
     const filter: Record<string, string> = {};
 
-    if (typeof severity === "string") {
+    if (typeof severity === "string" && ["medium", "high"].includes(severity)) {
       filter.severity = severity;
     }
 
@@ -56,7 +56,7 @@ app.get("/api/events", async (req: Request, res: Response) => {
       filter.ip_address = ip_address;
     }
 
-    let parsedLimit = 50;
+    let parsedLimit = 5;
 
     if (typeof limit === "string") {
       const requestedLimit = Number(limit);
@@ -70,11 +70,37 @@ app.get("/api/events", async (req: Request, res: Response) => {
       }
     }
 
-    const events = await SecurityEvent.find(filter)
-      .sort({ timestamp: -1 })
-      .limit(parsedLimit);
+    let parsedPage = 1;
 
-    return res.json(events);
+    if (typeof page === "string") {
+      const requestedPage = Number(page);
+
+      if (Number.isInteger(requestedPage) && requestedPage > 0) {
+        parsedPage = requestedPage;
+      }
+    }
+
+    const skip = (parsedPage - 1) * parsedLimit;
+
+    const [events, total] = await Promise.all([
+      SecurityEvent.find(filter)
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(parsedLimit),
+
+      SecurityEvent.countDocuments(filter),
+    ]);
+
+    return res.json({
+      data: events,
+      pagination: {
+        page: parsedPage,
+        limit: parsedLimit,
+        total,
+        totalPages: Math.ceil(total / parsedLimit),
+        hasNextPage: skip + events.length < total,
+      },
+    });
   } catch (error) {
     console.error("Failed to fetch security events:", error);
 
